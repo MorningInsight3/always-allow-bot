@@ -1,39 +1,28 @@
 -- ============================================================
--- AlwaysAllow Bot — macOS Auto-Approve for Electron Apps
--- 
+-- AlwaysAllow Bot v6.1 — macOS Auto-Approve for Electron Apps
+--
 -- 🤖 Automatically clicks "Always Allow" / "Allow" / "Yes" buttons
 --    in Electron apps that require repeated permission confirmations.
 --
--- ⚙️  CONFIGURATION: Change TARGET_APP_NAME below to your app's
---    process name (find it via: ps aux | grep -i "your-app")
+-- V6.1 Fixes:
+--   - Fix "every button of entire contents" -1700 error on Electron
+--     Reverted to entire contents + class check approach
+--   - Remove do shell script for lowercase (use native AppleScript)
+--   - Keep V6 features: dynamic freq/multi-window/fuzzy/blacklist/heartbeat
 --
--- Changes (V6):
---   P1: Dynamic polling frequency (0.5s→1s→2s→5s) reduces idle CPU
---   P2: Sidebar detection via entire contents (robust, no hardcoded paths)
---   P3: Dynamic heartbeat + log rotation (>1MB)
---   P4: LaunchAgent plist for auto-start on boot
---   P5: Every loop scans all buttons via entire contents
---   P6: Fuzzy matching (always/approve) + blacklist
---   P7: Multi-window support
+-- ⚙️ CONFIGURATION: Change TARGET_APP_NAME below to your app's process name
+--    Find it via: ps aux | grep -i "your-app"
 --
--- Install LaunchAgent:
---   cp always-allow-bot.applescript /usr/local/bin/
---   cp com.alwaysallow.bot.plist ~/Library/LaunchAgents/
---   launchctl load ~/Library/LaunchAgents/com.alwaysallow.bot.plist
---
--- Manual run: osascript always-allow-bot.applescript
+-- Run: osascript always-allow-bot.applescript
 -- Background: nohup osascript always-allow-bot.applescript > /tmp/always_allow_log.txt 2>&1 &
 -- Stop: pkill -f always-allow-bot
 -- ============================================================
 
 -- ⚙️ CONFIGURE YOUR TARGET APP HERE ⚙️
 set TARGET_APP_NAME to "TARGET_APP_NAME"
--- Examples:
---   "Cursor"          (for Cursor IDE)
---   "VS Code"         (for Visual Studio Code)
---   "MyApp"           (for your custom Electron app)
---   "Claude"          (for Claude desktop)
---   Your Electron app's process name from `ps aux`
+-- Examples: "Cursor", "VS Code", "Claude", "MyApp"
+-- Find your app name: ps aux | grep -i "your-app" | grep -v grep
+
 
 set clickCount to 0
 set loopCount to 0
@@ -55,8 +44,6 @@ set heartbeatSeconds to 60
 set idleHeartbeatSeconds to 600
 set deepIdleHeartbeatSeconds to 1800
 
-set blacklistItems to "reject,no,deny,cancel,block,拒绝,取消"
-
 -- 日志轮转
 try
 	set logSize to (do shell script "stat -f%z /tmp/always_allow_log.txt 2>/dev/null || echo 0") as integer
@@ -67,10 +54,10 @@ on error
 	-- 忽略
 end try
 
-log "=== AlwaysAllow Bot V6 启动 ==="
+log "=== Target App 自动点击 V6.1 启动 ==="
 log "策略: 无条件 Always Allow (基于用户行为观察)"
 log "优先级: Always Allow* > Always/始终允许 > Allow > Yes > 模糊匹配"
-log "改进: 动态频率 | entire contents 侧栏 | 多窗口 | 模糊匹配 | 动态心跳"
+log "修复: entire contents + class check (兼容 Electron)"
 log "按 Ctrl+C 停止"
 log "================================================"
 
@@ -86,14 +73,14 @@ repeat
 			else if (count of every window of process TARGET_APP_NAME) is 0 then
 				delay 1
 			else
-				-- === P2: 侧栏检测 via entire contents ===
+				-- === 侧栏检测 via entire contents ===
 				try
 					tell process TARGET_APP_NAME
 						set allWinElements to entire contents of window 1
 						repeat with elem in allWinElements
 							try
 								set elemClass to class of elem
-								if elemClass is menu item or elemClass is static text then
+								if elemClass is menu item then
 									set elemVal to ""
 									try
 										set elemVal to value of elem as text
@@ -104,9 +91,7 @@ repeat
 										end try
 									end if
 									if elemVal contains "Awaiting approval" or elemVal contains "等待批准" then
-										if elemClass is menu item then
-											set end of pendingSessionsToSwitch to elem
-										end if
+										set end of pendingSessionsToSwitch to elem
 									end if
 								end if
 							end try
@@ -160,41 +145,43 @@ repeat
 									set foundBtn to ""
 									tell process TARGET_APP_NAME
 										try
-											set winButtons to every button of entire contents of window 1
+											set allElements to entire contents of window 1
 											set allowBtn to missing value
 											set yesBtn to missing value
 											set fuzzyBtn to missing value
 											set fuzzyName to ""
-											repeat with elem in winButtons
+											repeat with elem in allElements
 												try
-													set btnName to name of elem
-													if btnName is missing value then set btnName to ""
-													if btnName is not "" then
-														set lowerBtn to do shell script "echo " & quoted form of btnName & " | tr '[:upper:]' '[:lower:]'"
-														set isBlocked to false
-														repeat with blk in {"reject", "no", "deny", "cancel", "block", "拒绝", "取消"}
-															if lowerBtn contains (blk as text) then
+													if class of elem is button then
+														set btnName to name of elem
+														if btnName is missing value then set btnName to ""
+														if btnName is not "" then
+															set isBlocked to false
+															if btnName contains "Reject" or btnName contains "reject" or btnName contains "Deny" or btnName contains "deny" or btnName contains "Cancel" or btnName contains "cancel" or btnName contains "Block" or btnName contains "block" or btnName contains "拒绝" or btnName contains "取消" then
 																set isBlocked to true
-																exit repeat
 															end if
-														end repeat
-														if not isBlocked then
-															if btnName starts with "Always Allow" then
-																click elem
-																set foundBtn to btnName
-																exit repeat
-															else if btnName is "Always" or btnName is "始终允许" or btnName starts with "始终允许" then
-																click elem
-																set foundBtn to btnName
-																exit repeat
-															else if btnName is "Allow" then
-																set allowBtn to elem
-															else if btnName is "Yes" then
-																set yesBtn to elem
-															else if lowerBtn contains "always" or lowerBtn contains "approve" then
-																if fuzzyBtn is missing value then
-																	set fuzzyBtn to elem
-																	set fuzzyName to btnName
+															if btnName is "No" or btnName is "no" then
+																set isBlocked to true
+															end if
+
+															if not isBlocked then
+																if btnName starts with "Always Allow" then
+																	click elem
+																	set foundBtn to btnName
+																	exit repeat
+																else if btnName is "Always" or btnName is "始终允许" or btnName starts with "始终允许" then
+																	click elem
+																	set foundBtn to btnName
+																	exit repeat
+																else if btnName is "Allow" then
+																	set allowBtn to elem
+																else if btnName is "Yes" then
+																	set yesBtn to elem
+																else if btnName contains "always" or btnName contains "Always" or btnName contains "approve" or btnName contains "Approve" then
+																	if fuzzyBtn is missing value then
+																		set fuzzyBtn to elem
+																		set fuzzyName to btnName
+																	end if
 																end if
 															end if
 														end if
@@ -237,7 +224,7 @@ repeat
 					end repeat
 				end if
 
-				-- === P5+P7: 每轮扫描所有窗口的按钮 ===
+				-- === 每轮扫描所有窗口的按钮 ===
 				tell process TARGET_APP_NAME
 					set allWindows to every window
 				end tell
@@ -247,41 +234,43 @@ repeat
 						set foundBtn to ""
 						tell process TARGET_APP_NAME
 							try
-								set winButtons to every button of entire contents of win
+								set allElements to entire contents of win
 								set allowBtn to missing value
 								set yesBtn to missing value
 								set fuzzyBtn to missing value
 								set fuzzyName to ""
-								repeat with elem in winButtons
+								repeat with elem in allElements
 									try
-										set btnName to name of elem
-										if btnName is missing value then set btnName to ""
-										if btnName is not "" then
-											set lowerBtn to do shell script "echo " & quoted form of btnName & " | tr '[:upper:]' '[:lower:]'"
-											set isBlocked to false
-											repeat with blk in {"reject", "no", "deny", "cancel", "block", "拒绝", "取消"}
-												if lowerBtn contains (blk as text) then
+										if class of elem is button then
+											set btnName to name of elem
+											if btnName is missing value then set btnName to ""
+											if btnName is not "" then
+												set isBlocked to false
+												if btnName contains "Reject" or btnName contains "reject" or btnName contains "Deny" or btnName contains "deny" or btnName contains "Cancel" or btnName contains "cancel" or btnName contains "Block" or btnName contains "block" or btnName contains "拒绝" or btnName contains "取消" then
 													set isBlocked to true
-													exit repeat
 												end if
-											end repeat
-											if not isBlocked then
-												if btnName starts with "Always Allow" then
-													click elem
-													set foundBtn to btnName
-													exit repeat
-												else if btnName is "Always" or btnName is "始终允许" or btnName starts with "始终允许" then
-													click elem
-													set foundBtn to btnName
-													exit repeat
-												else if btnName is "Allow" then
-													set allowBtn to elem
-												else if btnName is "Yes" then
-													set yesBtn to elem
-												else if lowerBtn contains "always" or lowerBtn contains "approve" then
-													if fuzzyBtn is missing value then
-														set fuzzyBtn to elem
-														set fuzzyName to btnName
+												if btnName is "No" or btnName is "no" then
+													set isBlocked to true
+												end if
+
+												if not isBlocked then
+													if btnName starts with "Always Allow" then
+														click elem
+														set foundBtn to btnName
+														exit repeat
+													else if btnName is "Always" or btnName is "始终允许" or btnName starts with "始终允许" then
+														click elem
+														set foundBtn to btnName
+														exit repeat
+													else if btnName is "Allow" then
+														set allowBtn to elem
+													else if btnName is "Yes" then
+														set yesBtn to elem
+													else if btnName contains "always" or btnName contains "Always" or btnName contains "approve" or btnName contains "Approve" then
+														if fuzzyBtn is missing value then
+															set fuzzyBtn to elem
+															set fuzzyName to btnName
+														end if
 													end if
 												end if
 											end if
@@ -323,16 +312,18 @@ repeat
 							if (count of every window) > 0 then
 								repeat with nw in every window
 									try
-										set nButtons to every button of entire contents of nw
-										repeat with nElem in nButtons
+										set nElements to entire contents of nw
+										repeat with nElem in nElements
 											try
-												set nbName to name of nElem
-												if nbName is missing value then set nbName to ""
-												if nbName starts with "Always Allow" or nbName is "Always" or nbName is "Allow" or nbName is "始终允许" or nbName starts with "始终允许" then
-													click nElem
-													set clickCount to clickCount + 1
-													set cycleClicked to true
-													log "[" & (time string of (current date)) & "] #" & clickCount & " 点击(通知): " & nbName
+												if class of nElem is button then
+													set nbName to name of nElem
+													if nbName is missing value then set nbName to ""
+													if nbName starts with "Always Allow" or nbName is "Always" or nbName is "Allow" or nbName is "始终允许" or nbName starts with "始终允许" then
+														click nElem
+														set clickCount to clickCount + 1
+														set cycleClicked to true
+														log "[" & (time string of (current date)) & "] #" & clickCount & " 点击(通知): " & nbName
+													end if
 												end if
 											end try
 										end repeat
@@ -352,7 +343,7 @@ repeat
 		end if
 	end try
 
-	-- P1: 动态频率调节
+	-- 动态频率调节
 	if cycleClicked then
 		set idleRounds to 0
 		set currentDelay to baseDelay
@@ -370,7 +361,7 @@ repeat
 		end if
 	end if
 
-	-- P3: 动态心跳
+	-- 动态心跳
 	set now to (current date)
 	set idleSeconds to (now - lastClickTime)
 	if idleSeconds > 3600 then

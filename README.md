@@ -1,6 +1,6 @@
 # 🤖 AlwaysAllow Bot
 
-**Stop clicking "Allow" a thousand times a day.**
+**v6.1 — Stop clicking "Allow" a thousand times a day.**
 
 A lightweight macOS AppleScript daemon that automatically clicks "Always Allow", "Allow", "Yes" and similar permission confirmation buttons in Electron-based apps — so your AI coding agents (Cursor, Claude Code, Kiro, etc.) can run uninterrupted.
 
@@ -25,6 +25,7 @@ You end up babysitting your AI agent, clicking "Always Allow" every 30 seconds. 
 | 🎯 **Smart Matching** | Priority-based: `Always Allow*` > `Always` > `Allow` > `Yes` > fuzzy match |
 | 🚫 **Blacklist** | Never clicks: Reject, No, Deny, Cancel, Block |
 | ⚡ **Dynamic Polling** | 0.5s when active → auto-slows to 5s when idle (saves CPU) |
+| 🛡️ **Electron Fix** | Handles -1700 errors with `entire contents` + class check |
 | 📊 **Smart Logging** | Dynamic heartbeat + auto-rotation at 1MB |
 | 🪟 **Multi-Window** | Monitors all windows of target app |
 | 🔍 **Sidebar Detection** | Finds "Awaiting approval" sessions and switches to them |
